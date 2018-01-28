@@ -8,6 +8,9 @@ using Eigen::MatrixXd;
 using Eigen::VectorXd;
 using std::vector;
 
+#define STATE_DIM 7;
+#define LAMBDA 3;
+
 /**
  * Initializes Unscented Kalman filter
  * This is scaffolding, do not modify
@@ -104,7 +107,7 @@ void UKF::ProcessMeasurement(MeasurementPackage m) {
 
 void UKF::generate_sigma_points()
 {
-  auto lambda = -4;
+  auto lambda = LAMBDA - STATE_DIM;
   MatrixXd P_aug = MatrixXd::Zero(7, 7);
   P_aug.block(0, 0, 5, 5) = P_;
   P_aug.block(5, 5, 2, 2) = Q_;
@@ -124,14 +127,66 @@ void UKF::generate_sigma_points()
   }
 }
 
-VectorXd UKF::process_model(const VectorXd &state)
+VectorXd UKF::process_model(const VectorXd &state, double t)
 {
-  return VectorXd(5);
+  double px = state(0);
+  double py = state(1);
+  double v = state(2);
+  double yaw = state(3);
+  double yaw_rate = state(4);
+  double accel = state(5);
+  double yaw_accel = state(6);
+
+  // Zero out noise from state.
+  state(5) = 0.0;
+  state(6) = 0.0;
+
+  VectorXd step(7);
+  VectorXd noise(7);
+
+  step << (v/dbz_guard(yaw_rate)) * (sin(yaw + yaw_rate*t) - sin(yaw)),
+          (v/dbz_guard(yaw_rate)) * (-cos(yaw + yaw_rate*t) + cos(yaw)),
+          0,
+          yaw_rate*t,
+          0;
+
+  noise << 0.5*(t*t)*cos(yaw)*accel,
+           0.5*(t*t)*sin(yaw)*accel,
+           t*accel,
+           0.5*(t*t)*yaw_accel,
+           t*yaw_accel;
+
+  return state + step + noise;
 }
 
-void UKF::predict_sigma_points()
+void UKF::predict_sigma_points(double t)
 {
+  for (int i = 0; i < sigma_points_.cols(); i++)
+  {
+    sigma_points_.col(i) = process_model(sigma_points_.col(i), t);
+  }
+}
 
+/**
+ * Update x_ and P_ using predicted distribution.
+ */
+void UKF::apriori_estimate()
+{
+  x_.setZero();
+  x_ += (LAMBDA/(LAMBDA + STATE_DIM)) * sigma_points_.col(0);
+
+  for (int i = 1; i < sigma_points_.cols(); i++)
+  {
+    x_ += 1/(2*(LAMBDA+STATE_DIM)) * sigma_points_.col(i);
+  }
+
+  P_.setZero();
+  P_ += (LAMBDA/(LAMBDA + STATE_DIM))*((sigma_points_.col(0) - x_)*(sigma_points_.col(0) - x_).transpose());
+
+  for (int i = 1; i < sigma_points_.cols(); i++)
+  {
+    P_ += 1/(2*(LAMBDA+STATE_DIM))*((sigma_points_.col(i) - x_)*(sigma_points_.col(i) - x_).transpose());
+  }
 }
 
 /**
@@ -143,9 +198,9 @@ void UKF::Prediction(double delta_t) {
 
   generate_sigma_points();
 
-  predict_sigma_points();
+  predict_sigma_points(delta_t);
 
-  // Calculate mean and covariance.
+  apriori_estimate();
 }
 
 /**

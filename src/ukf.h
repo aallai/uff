@@ -94,10 +94,11 @@ public:
 private:
 
   void generate_sigma_points();
-  void predict_sigma_points();
+  void predict_sigma_points(double t);
+  void apriori_estimate();
 
   // Takes state+noise vector in R^7 and returns predicted state vector in R^5.
-  VectorXd process_model(const VectorXd &state);
+  VectorXd process_model(const VectorXd &state, double t);
 };
 
 #endif /* UKF_H */
