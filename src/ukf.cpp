@@ -1,4 +1,5 @@
 #include "ukf.h"
+#include "tools.h"
 #include "Eigen/Dense"
 #include <iostream>
 
@@ -21,54 +22,116 @@ UKF::UKF() {
   // initial state vector
   x_ = VectorXd(5);
 
-  // initial covariance matrix
-  P_ = MatrixXd(5, 5);
+  // augmented sigma points.
+  sigma_points_ = MatrixXd(7, 15);
 
+  // initial covariance matrix
+  P_ = MatrixXd::Identity(5, 5);
+
+  // TODO put this stuff in Q
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ = 30;
+  auto std_a_ = 6;
 
   // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = 30;
-  
+  auto std_yawdd_ = 6;
+
+  Q_ = MatrixXd(2, 2);
+  Q_ << std_a_, 0,
+        0, std_yawdd_;
+
   //DO NOT MODIFY measurement noise values below these are provided by the sensor manufacturer.
   // Laser measurement noise standard deviation position1 in m
-  std_laspx_ = 0.15;
+  auto std_laspx_ = 0.15;
 
   // Laser measurement noise standard deviation position2 in m
-  std_laspy_ = 0.15;
+  auto std_laspy_ = 0.15;
 
   // Radar measurement noise standard deviation radius in m
-  std_radr_ = 0.3;
+  auto std_radr_ = 0.3;
 
   // Radar measurement noise standard deviation angle in rad
-  std_radphi_ = 0.03;
+  auto std_radphi_ = 0.03;
 
   // Radar measurement noise standard deviation radius change in m/s
-  std_radrd_ = 0.3;
+  auto std_radrd_ = 0.3;
   //DO NOT MODIFY measurement noise values above these are provided by the sensor manufacturer.
-  
-  /**
-  TODO:
 
-  Complete the initialization. See ukf.h for other member properties.
+  R_laser_ = MatrixXd(2, 2);
+  R_laser_ << std_laspx_*std_laspx_, 0,
+        0, std_laspy_*std_laspy_;
 
-  Hint: one or more values initialized above might be wildly off...
-  */
+  R_radar_ = MatrixXd(3, 3);
+  R_radar_ << std_radr_, 0, 0,
+              0, std_radphi_, 0,
+              0, 0, std_radrd_;
 }
 
 UKF::~UKF() {}
+
+VectorXd polar_to_cartesian(VectorXd polar)
+{
+  double rho = polar[0], phi = polar[1], rho_dot = polar[2];
+  auto px = sqrt((rho*rho) / dbz_guard(1 - tan(phi))); // divide by zero
+  auto py = sqrt((rho*rho) - (px * px));
+  auto cartesian = VectorXd(4);
+  cartesian << px, py, 0.0, 0.0;
+  return cartesian;
+}
 
 /**
  * @param {MeasurementPackage} meas_package The latest measurement data of
  * either radar or laser.
  */
-void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
-  /**
-  TODO:
+void UKF::ProcessMeasurement(MeasurementPackage m) {
+  if (!is_initialized_)
+  {
+    if (m.sensor_type_ == MeasurementPackage::RADAR) {
+      x_ = polar_to_cartesian(m.raw_measurements_);
+    }
+    else if (m.sensor_type_ == MeasurementPackage::LASER) {
+      x_ << m.raw_measurements_(0), m.raw_measurements_(1), 0, 0;
+    }
 
-  Complete this function! Make sure you switch between lidar and radar
-  measurements.
-  */
+    previous_timestamp_ = m.timestamp_;
+
+    // done initializing, no need to predict or update
+    is_initialized_ = true;
+    return;
+  }
+
+
+}
+
+void UKF::generate_sigma_points()
+{
+  auto lambda = -4;
+  MatrixXd P_aug = MatrixXd::Zero(7, 7);
+  P_aug.block(0, 0, 5, 5) = P_;
+  P_aug.block(5, 5, 2, 2) = Q_;
+  P_aug = lambda * P_aug;
+  MatrixXd root = P_aug.llt().matrixL();
+
+  sigma_points_.col(0) = x_;
+
+  int i = 1;
+  for (; i < (sigma_points_.cols() - 1)/2; i++)
+  {
+    sigma_points_.col(i) = x_ + root.col(i);
+  }
+  for (; i < (sigma_points_.cols() - 1)/2; i++)
+  {
+    sigma_points_.col(i) = x_ - root.col(i);
+  }
+}
+
+VectorXd UKF::process_model(const VectorXd &state)
+{
+  return VectorXd(5);
+}
+
+void UKF::predict_sigma_points()
+{
+
 }
 
 /**
@@ -77,12 +140,12 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
  * measurement and this one.
  */
 void UKF::Prediction(double delta_t) {
-  /**
-  TODO:
 
-  Complete this function! Estimate the object's location. Modify the state
-  vector, x_. Predict sigma points, the state, and the state covariance matrix.
-  */
+  generate_sigma_points();
+
+  predict_sigma_points();
+
+  // Calculate mean and covariance.
 }
 
 /**

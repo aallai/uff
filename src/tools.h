@@ -7,6 +7,9 @@ using Eigen::MatrixXd;
 using Eigen::VectorXd;
 using namespace std;
 
+// Can still result in INF.
+double dbz_guard(double x);
+
 class Tools {
 public:
   /**

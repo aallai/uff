@@ -28,32 +28,20 @@ public:
   ///* state covariance matrix
   MatrixXd P_;
 
+  ///* Process Noise
+  MatrixXd Q_;
+
+  ///* Lidar measurement noise.
+  MatrixXd R_laser_;
+
+  ///* Radar measurement noise.
+  MatrixXd R_radar_;
+
   ///* predicted sigma points matrix
-  MatrixXd Xsig_pred_;
+  MatrixXd sigma_points_;
 
   ///* time when the state is true, in us
-  long long time_us_;
-
-  ///* Process noise standard deviation longitudinal acceleration in m/s^2
-  double std_a_;
-
-  ///* Process noise standard deviation yaw acceleration in rad/s^2
-  double std_yawdd_;
-
-  ///* Laser measurement noise standard deviation position1 in m
-  double std_laspx_;
-
-  ///* Laser measurement noise standard deviation position2 in m
-  double std_laspy_;
-
-  ///* Radar measurement noise standard deviation radius in m
-  double std_radr_;
-
-  ///* Radar measurement noise standard deviation angle in rad
-  double std_radphi_;
-
-  ///* Radar measurement noise standard deviation radius change in m/s
-  double std_radrd_ ;
+  long long previous_timestamp_;
 
   ///* Weights of sigma points
   VectorXd weights_;
@@ -102,6 +90,14 @@ public:
    * @param meas_package The measurement at k+1
    */
   void UpdateRadar(MeasurementPackage meas_package);
+
+private:
+
+  void generate_sigma_points();
+  void predict_sigma_points();
+
+  // Takes state+noise vector in R^7 and returns predicted state vector in R^5.
+  VectorXd process_model(const VectorXd &state);
 };
 
 #endif /* UKF_H */
