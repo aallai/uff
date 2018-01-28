@@ -98,7 +98,7 @@ private:
   void apriori_estimate();
 
   // Takes state+noise vector in R^7 and returns predicted state vector in R^5.
-  VectorXd process_model(const VectorXd &state, double t);
+  VectorXd process_model(VectorXd state, double t);
 };
 
 #endif /* UKF_H */

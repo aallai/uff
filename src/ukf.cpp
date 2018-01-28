@@ -8,8 +8,8 @@ using Eigen::MatrixXd;
 using Eigen::VectorXd;
 using std::vector;
 
-#define STATE_DIM 7;
-#define LAMBDA 3;
+#define STATE_DIM 7
+#define LAMBDA 3
 
 /**
  * Initializes Unscented Kalman filter
@@ -127,7 +127,7 @@ void UKF::generate_sigma_points()
   }
 }
 
-VectorXd UKF::process_model(const VectorXd &state, double t)
+VectorXd UKF::process_model(VectorXd state, double t)
 {
   double px = state(0);
   double py = state(1);
@@ -177,15 +177,15 @@ void UKF::apriori_estimate()
 
   for (int i = 1; i < sigma_points_.cols(); i++)
   {
-    x_ += 1/(2*(LAMBDA+STATE_DIM)) * sigma_points_.col(i);
+    x_ += (1/(2*(LAMBDA+STATE_DIM)) * sigma_points_.col(i)).head(5);
   }
 
   P_.setZero();
-  P_ += (LAMBDA/(LAMBDA + STATE_DIM))*((sigma_points_.col(0) - x_)*(sigma_points_.col(0) - x_).transpose());
+  P_ += (LAMBDA/(LAMBDA + STATE_DIM))*((sigma_points_.col(0) - x_).head(5)*(sigma_points_.col(0) - x_).head(5).transpose());
 
   for (int i = 1; i < sigma_points_.cols(); i++)
   {
-    P_ += 1/(2*(LAMBDA+STATE_DIM))*((sigma_points_.col(i) - x_)*(sigma_points_.col(i) - x_).transpose());
+    P_ += 1/(2*(LAMBDA+STATE_DIM))*((sigma_points_.col(i) - x_).head(5)*(sigma_points_.col(i) - x_).head(5).transpose());
   }
 }
 
