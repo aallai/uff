@@ -40,11 +40,10 @@ public:
   ///* predicted sigma points matrix
   MatrixXd sigma_points_;
 
+  std::vector<double> weights_;
+
   ///* time when the state is true, in us
   long long previous_timestamp_;
-
-  ///* Weights of sigma points
-  VectorXd weights_;
 
   ///* State dimension
   int n_x_;
@@ -93,9 +92,18 @@ public:
 
 private:
 
+  VectorXd weighted_mean(const MatrixXd &m);
+  MatrixXd weighted_covariance(const MatrixXd &m, const VectorXd &u);
+
+  MatrixXd state_to_lidar();
+  MatrixXd state_to_radar();
+  void generate_weights();
   void generate_sigma_points();
   void predict_sigma_points(double t);
-  void apriori_estimate();
+  void update(const MatrixXd &measurement_prediction,
+              const VectorXd &measurement_mean,
+              const MatrixXd &measurement_covariance,
+              const VectorXd &innovation);
 
   // Takes state+noise vector in R^7 and returns predicted state vector in R^5.
   VectorXd process_model(VectorXd state, double t);

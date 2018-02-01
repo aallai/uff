@@ -2,6 +2,7 @@
 #include "tools.h"
 #include "Eigen/Dense"
 #include <iostream>
+#include <cmath>
 
 using namespace std;
 using Eigen::MatrixXd;
@@ -30,6 +31,8 @@ UKF::UKF() {
 
   // initial covariance matrix
   P_ = MatrixXd::Identity(5, 5);
+
+  generate_weights();
 
   // TODO put this stuff in Q
   // Process noise standard deviation longitudinal acceleration in m/s^2
@@ -71,13 +74,23 @@ UKF::UKF() {
 
 UKF::~UKF() {}
 
+void UKF::generate_weights()
+{
+  weights_.push_back(LAMBDA/(LAMBDA + STATE_DIM));
+
+  for (int i = 1; i < sigma_points_.cols(); i++)
+  {
+    weights_.push_back(1/(2*(LAMBDA+STATE_DIM)));
+  }
+}
+
 VectorXd polar_to_cartesian(VectorXd polar)
 {
   double rho = polar[0], phi = polar[1], rho_dot = polar[2];
   auto px = sqrt((rho*rho) / dbz_guard(1 - tan(phi))); // divide by zero
   auto py = sqrt((rho*rho) - (px * px));
-  auto cartesian = VectorXd(4);
-  cartesian << px, py, 0.0, 0.0;
+  auto cartesian = VectorXd(5);
+  cartesian << px, py, 0, 0, 0;
   return cartesian;
 }
 
@@ -92,7 +105,7 @@ void UKF::ProcessMeasurement(MeasurementPackage m) {
       x_ = polar_to_cartesian(m.raw_measurements_);
     }
     else if (m.sensor_type_ == MeasurementPackage::LASER) {
-      x_ << m.raw_measurements_(0), m.raw_measurements_(1), 0, 0;
+      x_ << m.raw_measurements_(0), m.raw_measurements_(1), 0, 0, 0;
     }
 
     previous_timestamp_ = m.timestamp_;
@@ -167,26 +180,30 @@ void UKF::predict_sigma_points(double t)
   }
 }
 
-/**
- * Update x_ and P_ using predicted distribution.
- */
-void UKF::apriori_estimate()
+VectorXd UKF::weighted_mean(const MatrixXd &m)
 {
-  x_.setZero();
-  x_ += (LAMBDA/(LAMBDA + STATE_DIM)) * sigma_points_.col(0);
+  VectorXd mean(m.rows());
+  mean.setZero();
 
-  for (int i = 1; i < sigma_points_.cols(); i++)
+  for (int i = 0; i < m.cols(); i++)
   {
-    x_ += (1/(2*(LAMBDA+STATE_DIM)) * sigma_points_.col(i)).head(5);
+    mean += weights_[i] * m.col(i);
   }
 
-  P_.setZero();
-  P_ += (LAMBDA/(LAMBDA + STATE_DIM))*((sigma_points_.col(0) - x_).head(5)*(sigma_points_.col(0) - x_).head(5).transpose());
+  return mean;
+}
 
-  for (int i = 1; i < sigma_points_.cols(); i++)
+MatrixXd UKF::weighted_covariance(const MatrixXd &m, const VectorXd &u)
+{
+  MatrixXd covariance(u.size(), u.size());
+  covariance.setZero();
+
+  for (int i = 0; i < m.cols(); i++)
   {
-    P_ += 1/(2*(LAMBDA+STATE_DIM))*((sigma_points_.col(i) - x_).head(5)*(sigma_points_.col(i) - x_).head(5).transpose());
+    covariance += weights_[i] * ((m.col(i) - u)*(m.col(i) - u).transpose());
   }
+
+  return covariance;
 }
 
 /**
@@ -200,7 +217,55 @@ void UKF::Prediction(double delta_t) {
 
   predict_sigma_points(delta_t);
 
-  apriori_estimate();
+  x_ = weighted_mean(sigma_points_).head(5);
+  P_ = weighted_covariance(sigma_points_.block(0, 0, x_.size(), sigma_points_.cols()), x_);
+}
+
+MatrixXd UKF::state_to_lidar()
+{
+  MatrixXd T(2, x_.size());
+
+  T << 1, 0, 0, 0, 0, 0, 0,
+       0, 1, 0, 0, 0, 0, 0;
+
+  return T * sigma_points_;
+}
+
+MatrixXd UKF::state_to_radar()
+{
+  MatrixXd radar(3, sigma_points_.cols());
+
+  for (int i = 0; i < sigma_points_.cols(); i++)
+  {
+    VectorXd point = sigma_points_.col(i);
+    double px = point(0), py = point(1), v = point(2), phi = point(3);
+
+    radar(0, i) = sqrt(px*px + py*py);
+    radar(1, i) = atan2(py, px);
+    radar(2, i) = (px*cos(phi)*v + py*sin(phi)*v) / dbz_guard(sqrt(px*px + py*py));
+  }
+
+  return radar;
+}
+
+void UKF::update(const MatrixXd &measurement_prediction,
+                 const VectorXd &measurement_mean,
+                 const MatrixXd &measurement_covariance,
+                 const VectorXd &innovation)
+{
+  // Calculate cross correlation.
+  MatrixXd corr(x_.size(), innovation.size());
+  corr.setZero();
+
+  for (int i = 0; i < sigma_points_.cols(); i++)
+  {
+    corr += weights_[i]*(sigma_points_.col(i) - x_)*(measurement_prediction.col(i) - measurement_mean).transpose();
+  }
+
+  MatrixXd K = corr * measurement_covariance.inverse();
+
+  x_ += K * innovation;
+  P_ -= K * measurement_covariance * K.transpose();
 }
 
 /**
@@ -208,14 +273,17 @@ void UKF::Prediction(double delta_t) {
  * @param {MeasurementPackage} meas_package
  */
 void UKF::UpdateLidar(MeasurementPackage meas_package) {
-  /**
-  TODO:
 
-  Complete this function! Use lidar data to update the belief about the object's
-  position. Modify the state vector, x_, and covariance, P_.
+  // Transform sigma points into measurement space.
+  MatrixXd measurement_prediction = state_to_lidar();
 
-  You'll also need to calculate the lidar NIS.
-  */
+  VectorXd measurement_mean = weighted_mean(measurement_prediction);
+  MatrixXd measurement_covariance = weighted_covariance(measurement_prediction, measurement_mean) + R_laser_;
+
+  update(measurement_prediction,
+         measurement_mean,
+         measurement_covariance,
+         meas_package.raw_measurements_ - measurement_mean);
 }
 
 /**
@@ -223,12 +291,18 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
  * @param {MeasurementPackage} meas_package
  */
 void UKF::UpdateRadar(MeasurementPackage meas_package) {
-  /**
-  TODO:
+  MatrixXd measurement_prediction = state_to_radar();
 
-  Complete this function! Use radar data to update the belief about the object's
-  position. Modify the state vector, x_, and covariance, P_.
+  VectorXd measurement_mean = weighted_mean(measurement_prediction);
+  MatrixXd measurement_covariance = weighted_covariance(measurement_prediction, measurement_mean) + R_radar_;
 
-  You'll also need to calculate the radar NIS.
-  */
+  VectorXd innovation = meas_package.raw_measurements_ - measurement_mean;
+
+  // Normalize angles.
+  innovation(1) = atan2(sin(innovation(1)), cos(innovation(1)));
+
+  update(measurement_prediction,
+         measurement_mean,
+         measurement_covariance,
+         innovation);
 }
