@@ -37,14 +37,14 @@ UKF::UKF() {
 
   // TODO put this stuff in Q
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  auto std_a_ = 0.1;
+  auto std_a_ = 1;
 
   // Process noise standard deviation yaw acceleration in rad/s^2
-  auto std_yawdd_ = 0.1;
+  auto std_yawdd_ = 0.2;
 
   Q_ = MatrixXd(2, 2);
-  Q_ << std_a_, 0,
-        0, std_yawdd_;
+  Q_ << std_a_*std_a_, 0,
+        0, std_yawdd_*std_yawdd_;
 
   //DO NOT MODIFY measurement noise values below these are provided by the sensor manufacturer.
   // Laser measurement noise standard deviation position1 in m
@@ -114,7 +114,6 @@ void UKF::ProcessMeasurement(MeasurementPackage m) {
 
     // done initializing, no need to predict or update
     is_initialized_ = true;
-
     return;
   }
 
@@ -122,7 +121,7 @@ void UKF::ProcessMeasurement(MeasurementPackage m) {
 
   cout << "After predict" << endl;
   cout << "x_ = " << x_ << endl;
-  cout << "P_ = " << P_ << endl;
+  cout << "P_ = " << P_ << endl << endl;
 
   if (m.sensor_type_ == MeasurementPackage::RADAR)
   {
@@ -137,9 +136,24 @@ void UKF::ProcessMeasurement(MeasurementPackage m) {
 
   cout << "After update" << endl;
   cout << "x_ = " << x_ << endl;
-  cout << "P_ = " << P_ << endl;
+  cout << "P_ = " << P_ << endl << endl;
 
   previous_timestamp_ = m.timestamp_;
+}
+
+/**
+ * Predicts sigma points, the state, and the state covariance matrix.
+ * @param {double} delta_t the change in time (in seconds) between the last
+ * measurement and this one.
+ */
+void UKF::Prediction(double delta_t) {
+
+  generate_sigma_points();
+
+  predict_sigma_points(delta_t);
+
+  x_ = weighted_mean(sigma_points_);
+  P_ = weighted_covariance(sigma_points_.block(0, 0, STATE_DIM, sigma_points_.cols()), x_.head(STATE_DIM), 3);
 }
 
 void UKF::generate_sigma_points()
@@ -167,6 +181,8 @@ void UKF::generate_sigma_points()
 
 VectorXd UKF::process_model(VectorXd state, double t)
 {
+  //cout << "State: " << state << endl;
+
   double px = state(0);
   double py = state(1);
   double v = state(2);
@@ -180,15 +196,29 @@ VectorXd UKF::process_model(VectorXd state, double t)
   state(6) = 0.0;
 
   VectorXd step(7);
+  step.setZero();
   VectorXd noise(7);
+  noise.setZero();
 
-  step << (v/dbz_guard(yaw_rate)) * (sin(yaw + yaw_rate*t) - sin(yaw)),
-          (v/dbz_guard(yaw_rate)) * (-cos(yaw + yaw_rate*t) + cos(yaw)),
-          0,
-          yaw_rate*t,
-          0,
-          0,
-          0;
+  if (fabs(yaw_rate) > 0.001)
+  {
+    //cout << "yaw rate nonzero" << endl;
+    step(0) = (v/yaw_rate) * (sin(yaw + yaw_rate*t) - sin(yaw));
+    step(1) = (v/yaw_rate) * (cos(yaw) - cos(yaw + yaw_rate*t));
+  }
+  else
+  {
+    //cout << "yaw rate zero" << endl;
+    //cout << "t: " << t << endl;
+    //cout << "v: " << v << endl;
+    //cout << "yaw: " << yaw << endl;
+    step(0) = v*t*cos(yaw);
+    step(1) = v*t*sin(yaw);
+  }
+
+  //cout << "Step: " << step << endl;
+
+  step(3) = yaw_rate*t;
 
   noise << 0.5*(t*t)*cos(yaw)*accel,
            0.5*(t*t)*sin(yaw)*accel,
@@ -198,7 +228,11 @@ VectorXd UKF::process_model(VectorXd state, double t)
            0,
            0;
 
-  return state + step + noise;
+  //cout << "Noise: " << noise << endl;
+
+  VectorXd ret = state + step + noise;
+  ret(3) = normalize(ret(3));
+  return ret;
 }
 
 void UKF::predict_sigma_points(double t)
@@ -222,32 +256,22 @@ VectorXd UKF::weighted_mean(const MatrixXd &m)
   return mean;
 }
 
-MatrixXd UKF::weighted_covariance(const MatrixXd &m, const VectorXd &u)
+MatrixXd UKF::weighted_covariance(const MatrixXd &m, const VectorXd &u, int normalize_index)
 {
   MatrixXd covariance(u.size(), u.size());
   covariance.setZero();
 
   for (int i = 0; i < m.cols(); i++)
   {
-    covariance += weights_[i] * ((m.col(i) - u)*(m.col(i) - u).transpose());
+    VectorXd diff = m.col(i) - u;
+
+    if (normalize_index != INT_MAX)
+      diff(normalize_index) = normalize(diff(normalize_index));
+
+    covariance += weights_[i] * diff * diff.transpose();
   }
 
   return covariance;
-}
-
-/**
- * Predicts sigma points, the state, and the state covariance matrix.
- * @param {double} delta_t the change in time (in seconds) between the last
- * measurement and this one.
- */
-void UKF::Prediction(double delta_t) {
-
-  generate_sigma_points();
-
-  predict_sigma_points(delta_t);
-
-  x_ = weighted_mean(sigma_points_);
-  P_ = weighted_covariance(sigma_points_.block(0, 0, STATE_DIM, sigma_points_.cols()), x_.head(STATE_DIM));
 }
 
 MatrixXd UKF::state_to_lidar()
@@ -295,10 +319,6 @@ void UKF::update(const MatrixXd &measurement_prediction,
 
   x_ += K * innovation;
   P_ -= (K * measurement_covariance * K.transpose()).block(0, 0, STATE_DIM, STATE_DIM);
-
-
-
-  cout << "Made it 2?" << endl;
 }
 
 /**
@@ -327,7 +347,7 @@ void UKF::UpdateRadar(MeasurementPackage m) {
   MatrixXd measurement_prediction = state_to_radar();
 
   VectorXd measurement_mean = weighted_mean(measurement_prediction);
-  MatrixXd measurement_covariance = weighted_covariance(measurement_prediction, measurement_mean) + R_radar_;
+  MatrixXd measurement_covariance = weighted_covariance(measurement_prediction, measurement_mean, 2) + R_radar_;
   VectorXd innovation = m.raw_measurements_ - measurement_mean;
 
   // Normalize angles.

@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <climits>
 
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -93,7 +94,7 @@ public:
 private:
 
   VectorXd weighted_mean(const MatrixXd &m);
-  MatrixXd weighted_covariance(const MatrixXd &m, const VectorXd &u);
+  MatrixXd weighted_covariance(const MatrixXd &m, const VectorXd &u, int normalize_index = INT_MAX);
 
   MatrixXd state_to_lidar();
   MatrixXd state_to_radar();

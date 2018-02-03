@@ -10,6 +10,8 @@ using namespace std;
 // Can still result in INF.
 double dbz_guard(double x);
 
+double normalize(double rads);
+
 class Tools {
 public:
   /**

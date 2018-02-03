@@ -12,6 +12,11 @@ double dbz_guard(double x)
   return x;
 }
 
+double normalize(double rads)
+{
+  return atan2(sin(rads), cos(rads));
+}
+
 Tools::Tools() {}
 
 Tools::~Tools() {}
